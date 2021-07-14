@@ -1,0 +1,13 @@
+absl-py
+dm-haiku
+dm-tree
+jax
+jaxlib
+matplotlib
+ml_collections
+numpy
+optax
+pandas
+requests
+scipy
+tensorflow
