@@ -1,0 +1,527 @@
+# DeepMind COVID-19 Evaluation Toolkit
+
+Contact [dm_c19_modelling@google.com](mailto:dm_c19_modelling@google.com?subject=[C19%20Evaluation])
+for comments and questions.
+
+This toolkit is for standardising the evaluation of forecasting models.
+
+When using live updating time series datasets, there are some common issues that
+can make comparing different forecasting models challenging. For example, a data
+source may be updated (often termed "restatement" or
+["retrospective reporting"](https://github.com/CSSEGISandData/COVID-19/tree/master/csse_covid_19_data#large-scale-back-distributions))
+to capture data that arrives after the initial report, or to reflect changes in
+the reporting standards themselves, such as the definition of a COVID-19 death
+(e.g., COVID-19 was the cause of death vs. COVID-19 was listed on the death
+certificate vs. excess deaths which are attributed to COVID-19). If one forecast
+is generated or evaluated before an update, while another is generated after an
+update, this opens the possibility that differences in the forecasts arise not
+from differences in the models that generate them, but rather from differences
+in the data on which they are based or evaluated.
+
+The purpose of this toolkit is to make measuring relative performances among
+different forecasting models easier and more replicable, and to help draw
+sound conclusions. The toolkit provides a framework for indexing forecasts and
+the data on which they are based in a standard protocol, to improve the ability
+to compare forecasting models on a like-for-like basis. To foster replicability,
+the data and forecast index protocols provide fields for making explicit the
+source code which was used to create a dataset, or to define a forecasting
+model. Ideally, data processing code and models would be made open-source, and
+its version-controlled repository (e.g., a github commit hash) would be stored
+alongside the dataset or forecast. For non-open-source code, a paper citation or
+other documentation that supports replication could be provided.
+
+## Components
+
+### Dataset download
+
+We use the
+[Google Cloud Platform COVID-19 Open Data dataset](https://github.com/GoogleCloudPlatform/covid-19-open-data)
+to demonstrate usage of these tools. This dataset contains data at different
+spatial resolutions, the highest aggregation level being country-level data. We
+provide a script to download and save a country-level dataset comprised of
+demographics, reported COVID-19 cases & deaths, and mobility patterns data.
+
+### Dataset index
+
+Data used for forecasting are dynamically updated. To preserve and standardize
+data for robust scientific modeling, our toolkit allows datasets to be frozen
+and versioned, with metadata that describes the source and timing of the data
+stored within a "dataset index". Important attributes of the indexed datasets
+include:
+
+-   `creation_date`: The date on which the data was downloaded and a frozen
+    dataset created. Dates are formatted "YYYY-MM-DD".
+-   `file_location`: A link to the location of the dataset.
+-   `dataset_name`: The name of the dataset, typically indicating the data
+    sources and the region. This is a way for a user to group together datasets
+    which correspond to the same observations and regions, which have been
+    periodically scraped and frozen over time, e.g.,
+    "cases_and_deaths_in_US_counties".
+-   `source_data_info`, `creation_info`, and `extra_info`: Optional fields to
+    provide information about the source data (e.g., definitions of the
+    features), the code used to create the dataset (e.g., a github commit hash
+    of the data processing code), and any additional information, respectively.
+
+Our framework represents the dataset index as a Python dictionary and stores it
+as a human-readable JSON, where the key is a unique dataset identifier, and the
+entry itself is a Python dictionary of attributes including those above.
+
+A key term we define is the "observation date", which refers to the date to
+which an observed piece of data corresponds. For example, the deaths which
+occurred on 2 April have 2 April as their "observation date", even if they were
+reported later. The observation date's specific meaning is determined by who
+reports it: if a COVID-19 test is administered on 11 April, the results are
+returned on 16 April, and the results are posted to a government website on 19
+April, then the observation date should correspond to the date which corresponds
+most closely to the root cause that's being measured. If the data includes 11
+April as the test date, that should be the observation date. If the actual test
+date is not included in the data and only 16 April is included on the government
+website, then that should be the observation date. Best efforts should be made
+to document the meaning of the data and its observation date in the dataset
+index, so that others who read the index can best understand the exact nature of
+the data.
+
+### Forecast index
+
+A forecast is generated by a model based on available data, and corresponds to
+what the model predicts will happen after the forecast is made. For each
+forecast that is generated by a model, its metadata is stored in a "forecast
+index". Important attributes of the indexed forecast include:
+
+-   `source_data_info`: Information about the data on which the model based its
+    forecast, including the unique key for dataset index entry (as described
+    above) for the model's training data.
+-   `last_observation_date`: The date from which the forecast projects into the
+    future. In other words, a forecast the predicts what will happen on 7-13
+    July has a `last_observation_date` of 6 July. Naturally a forecast should
+    not be based on knowledge of the future. There are some subtle but important
+    things to note. A forecast with `last_observation_date` of 6 July may be
+    generated at any date on or after 6 July. For example, if a researcher is
+    evaluating the historical quality of a model, they may generate forecasts
+    whose `last_observation_date`s span a range of past dates to assess their
+    performance. They may want to compare how a new model would have fared
+    compared to forecasts that were made at the time. In that case they may
+    restrict the new model's training data to only that which was reported up to
+    6 July. Alternatively, they may choose to use data that was reported after 6
+    July, but which corresponded to events that happened on or before 6 July
+    (e.g. if estimated deaths are later revised). For example, if a new data
+    source is released which covers past dates, a researcher may be interested
+    in using it for future dates, but may want to evaluate how it would have
+    performed in the past had the new data been available at the time. Dates are
+    formatted "YYYY-MM-DD".
+-   `features_used`: Optional field to record the names of features used to
+    train the model that produced the forecasts.
+-   `creation_info` and `extra_info`: Optional fields to provide information
+    about the code used to create the forecast (e.g., a github commit hash of
+    the model code), and any additional information, respectively.
+
+Similarly to the dataset index, the forecast index is a Python dictionary stored
+as a human-readable JSON, where the key is a unique forecast identifier, and the
+entry itself is a Python dictionary of attributes including those above.
+
+### Evaluation
+
+Multiple forecasts can only be compared if the following conditions are
+satisfied:
+
+-   The forecasts have the same `last_observation_date`. Models being compared
+    should base their forecasts on data whose observation dates are the same,
+    and which correspond only to the present and past, not the future. For
+    example, we do not permit comparison between a 4-week forecasting model
+    trained on data whose `last_observation_date` is 1st May 2020, and a 2-week
+    forecasting model trained on data whose `last_observation_date` is 15th May
+    2020, even though both models produce forecasts between 16th \- 29th
+    May 2020. Comparison is however permitted between models with the same
+    `last_observation_date` but a different forecast horizon; the comparison is
+    made on the smallest common horizon. For example, the forecasts from two
+    models trained on 1st May 2020 to predict 2 and 4 weeks into the future
+    respectively may be compared for the first 2 weeks.
+
+-   The models that generated the forecasts use data with the same
+    `creation_date`. It is not appropriate to compare two forecasts if they do
+    not have access to the same data. The datasets do not need to be the same:
+    one model may choose not to use data that another uses, but it isn't
+    appropriate for one model to use data that another could not have used. The
+    `creation_date` can be later than the `last_observation_date`, however only
+    data whose observation dates are at or before the `last_observation_date`
+    may be included. This is especially important for retrospectively evaluating
+    forecasts, where one forecast may have been made in the past, while another
+    is made at the present, with a `last_observation_date` in the past.
+
+-   The comparisons are made for common regions (e.g., provinces or nations).
+
+-   The comparisons are made for common forecasted future dates.
+
+Note that the choice of evaluation dataset also affects metrics, due to similar
+effects of data restatement. The choice is configurable via the
+`eval_dataset_creation_date` parameter, but should be the same across all
+forecasts being compared.
+
+In the demo described below, our evaluation module checks that all of the above
+conditions are satisfied, computes some widely-used metrics, and plots a bar
+chart of comparative predictive performance for the forecasts being compared.
+
+### Baseline models
+
+We provide five baseline models that produce forecasts for either COVID-19 new
+cases or deaths for some pre-defined horizon into the future (see `model_name`
+flag below):
+
+-   `logistic`: Fits per-site target totals to time using the logistic function.
+-   `gompertz`: Fits per-site target totals to time using the Gompertz function.
+-   `linear`: Fits per-site target totals to time using a linear function.
+-   `quadratic`: Fits per-site target totals to time using a quadratic function.
+-   `repeat_last_week`: Repeats the last week's data into the future.
+
+When training a model, the following parameters must be specified:
+
+-   `last_observation_date`: As defined in the "Forecast index" section above.
+-   `creation_date`: As defined in the "Dataset index" section above. Note that
+    this must be greater than or equal to the `last_observation_date`. Dates are
+    formatted "YYYY-MM-DD".
+-   `num_forecast_dates`: The number of dates into the future to forecast.
+-   `cadence`: The cadence of forecasts to make e.g. daily or weekly. If
+    `cadence=7` and `num_forecast_dates=2`, two forecasts will be made: one for
+    the first week and one for the second week. Datasets are required to have
+    daily cadence data; specifying a non-daily cadence here applies the
+    following aggregations to columns in the dataset:
+    -   The incremental targets, `new_confirmed` and `new_deceased`, are summed
+        across the cadence period.
+    -   The cumulative target `cumulative_deceased` is not aggregated; the final
+        value at the end of the cadence period is taken.
+    -   For all other feature columns, the mean value over the cadence period is
+        taken.
+
+By default models produce forecasts for each site in the dataset for each day in
+the range `(last_observation_date + 1, ..., last_observation_date +
+num_forecast_dates)`. The `cadence` parameter can be used to adjust the cadence
+of forecasts. For example, setting `cadence=7` will produce weekly forecasts.
+
+## Running the demo pipeline
+
+First generate a dataset, downloaded from the Google Cloud Platform COVID-19
+Open Data GitHub repository. A new dataset index will be created and saved in
+`<project_directory>` as `dataset_index-<dataset_name>.json`. The dataset will
+be saved as a csv file `<project_directory>/datasets`. Two values for
+`dataset_name` are available:
+
+-   `covid_open_data_world`: a country-level dataset of the world
+-   `covid_open_data_us_states`: a state-level dataset of the US
+
+```
+python3 run_download_data.py --project_directory=<project_directory> \
+                             --dataset_name=<dataset_name>
+```
+
+Train one or more baseline models to predict a target `num_forecast_dates` days
+into the future from a given `last_observation_date` using the dataset just
+downloaded. The forecasts will be saved in csv files with a unique `forecast_id`
+in `<project_directory>/forecasts`. A new forecast index will be created and
+saved in `<project_directory>` as `forecast_index-<dataset_name>.json`. Valid
+`target_name`s include: "new_deceased", "new_confirmed". Note that by default
+this script will use the most recent dataset available as the training dataset.
+
+```
+python3 fit_baseline_model.py --project_directory=<project_directory> \
+                              --last_observation_date=<last_observation_date> \
+                              --target_name=<target_name> \
+                              --model_name=<model_name> \
+                              --num_forecast_dates=<num_forecast_dates>
+```
+
+Evaluate the forecasts produced by the previous step, producing a metrics table
+and comparative bar plots. The evaluation pipeline will fail if any of the
+comparability constraints outlined above are violated. The forecast IDs
+generated for the models fitted in the previous step are available in the logs.
+
+```
+python3 run_evaluation.py --project_directory=<project_directory> \
+                          --forecast_ids=<forecast_id_1>,...,<forecast_id_n> \
+                          --target_name=<target_name> \
+                          --eval_dataset_creation_date=<eval_dataset_creation_date>
+```
+
+Full command-line arguments for the above scripts can be viewed with:
+
+```
+python3 <script_name.py> --help
+```
+
+## Indexing existing datasets and forecasts
+
+While we provide a reference implementation of dataset processing and model
+fitting, the framework supports adding pre-existing datasets and forecasts.
+
+Add a dataset (in any format) to a new or existing dataset index as follows:
+
+```python
+from dm_c19_modelling.evaluation import base_indexing
+from dm_c19_modelling.evaluation import dataset_indexing
+
+entry = dataset_indexing.build_entry(<file_location>,
+                                     <dataset_name>,
+                                     <creation_date>,
+                                     <creation_timestamp>,
+                                     <source_data_info>,
+                                     <extra_info>)
+
+base_indexing.open_index_and_add_entry(<index_directory>,
+                                       entry,
+                                       validate_file_location=False,
+                                       validate_file_in_entry=False)
+```
+
+Add a forecast in the prescribed dataframe format with columns `date`,
+`site_id`, `prediction`, `target_name` to a new or existing forecast index and
+save the forecasts locally as follows:
+
+```python
+from dm_c19_modelling.evaluation import forecast_indexing
+
+forecast_indexing.save_predictions_df(<predictions_df>,
+                                      <index_directory>,
+                                      <last_observation_date>,
+                                      <forecast_horizon>,
+                                      <model_description>,
+                                      <dataset_name>,
+                                      <dataset_index_key>,
+                                      <cadence>,
+                                      <extra_info>)
+```
+
+Add a forecast in the prescribed array format with shape `(num_forecast_dates,
+num_sites, num_targets)` to a new or existing forecast index and save the
+forecasts locally as follows:
+
+```python
+from dm_c19_modelling.evaluation import forecast_indexing
+
+predictions_df = forecast_indexing.build_predictions_df(
+      <predictions>,
+      <dates>,
+      <sites>,
+      <target_names>)
+
+forecast_indexing.save_predictions_df(predictions_df,
+                                      <index_directory>,
+                                      <last_observation_date>,
+                                      <forecast_horizon>,
+                                      <model_description>,
+                                      <dataset_name>,
+                                      <dataset_index_key>,
+                                      <extra_info>)
+```
+
+## Example outputs
+
+<table>
+   <tr>
+      <td>Dataset index
+      </td>
+      <td>
+         <pre>{
+    "1605544787": {
+        "creation_timestamp": "2020-11-16_16:39:47",
+        "dataset_name": "covid_open_data_world",
+        "extra_info": {
+            "first_data_date": "2020-01-05",
+            "late_data_date": "2020-11-13",
+            "number_of_sites": 231
+        },
+        "file_location": "/datasets/covid_open_data_world_2020-11-16_1605544787.csv",
+        "creation_date": "2020-11-16",
+        "source_data_info": [
+            "https://storage.googleapis.com/covid19-open-data/v2/index",
+            "https://storage.googleapis.com/covid19-open-data/v2/epidemiology",
+            "https://storage.googleapis.com/covid19-open-data/v2/demographics",
+            "https://storage.googleapis.com/covid19-open-data/v2/mobility"
+        ]
+    }
+</pre>
+      </td>
+   </tr>
+   <tr>
+      <td>Datasets
+      </td>
+      <td>
+         <table>
+            <tr>
+               <td>date
+               </td>
+               <td>site_id
+               </td>
+               <td>country_name
+               </td>
+               <td>new_confirmed
+               </td>
+               <td>new_deceased
+               </td>
+               <td>...
+               </td>
+            </tr>
+            <tr>
+               <td>2020-05-01
+               </td>
+               <td>AD
+               </td>
+               <td>Andorra
+               </td>
+               <td>1.0
+               </td>
+               <td>1.0
+               </td>
+               <td>...
+               </td>
+            </tr>
+            <tr>
+               <td>2020-05-02
+               </td>
+               <td>AD
+               </td>
+               <td>Andorra
+               </td>
+               <td>1.0
+               </td>
+               <td>1.0
+               </td>
+               <td>...
+               </td>
+            </tr>
+            <tr>
+               <td>...
+               </td>
+               <td>...
+               </td>
+               <td>...
+               </td>
+               <td>...
+               </td>
+               <td>...
+               </td>
+               <td>...
+               </td>
+            </tr>
+         </table>
+      </td>
+   </tr>
+   <tr>
+      <td>Forecast index
+      </td>
+      <td>
+         <pre>
+{
+    "1605544943": {
+        "creation_timestamp": "2020-11-16_16:42:23",
+        "dataset_name": "covid_open_data_world",
+        "extra_info": {
+            "first_training_date": "2020-01-05",
+            "forecast_horizon": 14,
+            "model_description": "Repeat last week's data"
+        },
+        "file_location": "/forecasts/forecasts_1605544943.csv",
+        "forecast_id": "1605544943",
+        "last_observation_date": "2020-05-06",
+        "cadence": 1,
+        "source_data_info": {
+            "dataset_index_key": "1605544787"
+        }
+    }
+}
+</pre>
+      </td>
+   </tr>
+   <tr>
+      <td>Forecasts
+      </td>
+      <td>
+         <table>
+            <tr>
+               <td>date
+               </td>
+               <td>site_id
+               </td>
+               <td>prediction
+               </td>
+               <td>target_name
+               </td>
+            </tr>
+            <tr>
+               <td>2020-05-01
+               </td>
+               <td>AD
+               </td>
+               <td>0.0
+               </td>
+               <td>new_deceased
+               </td>
+            </tr>
+            <tr>
+               <td>2020-05-02
+               </td>
+               <td>AD
+               </td>
+               <td>1.0
+               </td>
+               <td>new_deceased
+               </td>
+            </tr>
+            <tr>
+               <td>...
+               </td>
+               <td>...
+               </td>
+               <td>...
+               </td>
+               <td>...
+               </td>
+            </tr>
+         </table>
+      </td>
+   </tr>
+   <tr>
+      <td>Metrics
+      </td>
+      <td>
+         <table>
+            <tr>
+               <td>forecast_id
+               </td>
+               <td>metric_name
+               </td>
+               <td>metric_value
+               </td>
+               <td>target_name
+               </td>
+            </tr>
+            <tr>
+               <td>1605544943
+               </td>
+               <td>rmse
+               </td>
+               <td>43.644
+               </td>
+               <td>new_deceased
+               </td>
+            </tr>
+            <tr>
+               <td>1605544943
+               </td>
+               <td>mae
+               </td>
+               <td>8.441
+               </td>
+               <td>new_deceased
+               </td>
+            </tr>
+         </table>
+      </td>
+   </tr>
+</table>
+
+## Setup
+
+### Python dependencies
+
+We specify dependencies in `requirements-evaluation.txt`, which can be installed
+with:
+```pip3 install -r requirements-evaluation.txt```
